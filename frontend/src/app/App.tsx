@@ -14,7 +14,7 @@ const pages = { Dashboard, Search, Roadmap, Watchlist, Login }
 
 export default function App() {
   useApiHealth()
-  const { state, refreshSession, signOut } = useSession()
+  const { state, refreshSession, signIn, signOut } = useSession()
   const [page, setPage] = useState<Page>('Dashboard')
   const [notice, setNotice] = useState('')
   const [signingOut, setSigningOut] = useState(false)
@@ -35,7 +35,12 @@ export default function App() {
 
   return (
     <>
-      <Header selectedPage={currentPage} onNavigate={setPage} user={user} onSignOut={handleSignOut} signingOut={signingOut} />
+      {user ? (
+        <Header selectedPage={currentPage} onNavigate={setPage} user={user} onSignOut={handleSignOut} signingOut={signingOut} />
+      ) : (
+        <div className="top-accent-line" />
+      )}
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <div className="shell">
         <main id="main-content" key={`${user?.id ?? 'anonymous'}:${currentPage}`}>
           {notice && <p role="alert">{notice}</p>}
@@ -45,7 +50,7 @@ export default function App() {
           </div>}
           {state.status === 'loading'
             ? <p role="status">Checking your login…</p>
-            : <CurrentPage onNavigate={setPage} onSessionChanged={() => { void refreshSession() }} />}
+            : <CurrentPage onSignIn={signIn} onNavigate={setPage} onSessionChanged={() => { void refreshSession() }} />}
         </main>
       </div>
       <Footer />

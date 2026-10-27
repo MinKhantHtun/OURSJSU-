@@ -1,46 +1,48 @@
-import { useState } from 'react'
-import type { EligibilityResponse, PageProps, StudentRoadmap } from '../shared/api/types'
+import { useCallback } from 'react'
+import { getStudentRoadmap } from '../shared/api/planning'
+import { ApiClientError } from '../shared/api/client'
+import { useLoad } from '../shared/hooks/useLoad'
+import type { PageProps } from '../shared/api/types'
+import { ErrorNotice } from '../components/Feedback'
+import { EligibilityDetails } from '../components/SectionDetails'
 import './Roadmap.css'
 
-// - shared/api/planning.getStudentRoadmap()->StudentRoadmap; 409 PROFILE_INCOMPLETE sends the
-//   student to Dashboard to pick a major.
-// - Group courses by term_order; render student_status, grade, progress and backend recommendations.
-//   Refresh when profile/history changes, not only on initial mount.
-// - Keep eligible/ineligible/unknown distinct; show reasons and missing_course_ids. Use backend
-//   decisions rather than calculating another prerequisite engine.
-// - Each entry has grade:Grade|null. Completed attempts with failing/unknown grades do not mean
-//   earned course credit. Show backend reasons for grade, GPA, units, standing and major decisions.
-// - StudentRoadmap: {major: Major, courses: StudentRoadmapEntry[], summary: ProgressSummary,
-//   recommendations: string[]}.
-async function loadRoadmap(): Promise<StudentRoadmap> {
-  throw new Error('loadRoadmap is not implemented')
-}
-
-// - shared/api/planning.checkEligibility({course_ids:courseIds})->EligibilityResponse. 1–100
-//   distinct IDs; batch larger roadmaps.
-// - Results follow input order. Backend evaluates course grades and profile restrictions;
-//   refresh when either changes. Show unknown only for missing/unsupported conditions and keep
-//   its reasons visible. Group the roadmap by semester, not a graph.
-// - EligibilityResponse: {results: Eligibility[]}.
-async function refreshEligibility(courseIds: string[]): Promise<EligibilityResponse> {
-  void [courseIds]
-  throw new Error('refreshEligibility is not implemented')
-}
-
-const actions = { loadRoadmap, refreshEligibility }
-
-// - Keep loading, empty and error states separate.
-export default function Roadmap(props: PageProps = {}) {
-  const [notice, setNotice] = useState('')
-  void props
-  return (
-    <section className="roadmap-page">
-      <h1>Roadmap</h1>
-      <p>Degree planning will be built here.</p>
-      <button type="button" disabled onClick={() => {
-        void actions.loadRoadmap().catch((error: unknown) => setNotice(error instanceof Error ? error.message : 'Request failed'))
-      }}>Refresh</button>
-      {notice && <p role="alert">{notice}</p>}
-    </section>
-  )
+export default function Roadmap({ onNavigate }: PageProps) {
+  const { data, error, loading, reload } = useLoad(useCallback((signal: AbortSignal) => getStudentRoadmap(signal), []))
+  const terms = [...new Set(data?.courses.map(c => c.term_order))]
+  return <section className="roadmap-page">
+    <div className="page-heading"><h1>Your degree roadmap</h1><button disabled={loading} onClick={reload}>Refresh roadmap</button></div>
+    <ErrorNotice error={error} />{error instanceof ApiClientError && error.code === 'PROFILE_INCOMPLETE' && <button className="primary" onClick={() => onNavigate?.('Dashboard')}>Choose a major on Dashboard</button>}
+    {loading && <p role="status">Loading your roadmap…</p>}
+    {data && <>
+      <section className="progress-summary"><h2>{data.major.title} {data.major.degree_type}</h2>
+        <div className="progress-label"><strong>{data.summary.completed_courses} of {data.summary.total_required_courses} required courses earned</strong><span>{data.summary.completion_percent.toFixed(0)}%</span></div>
+        <progress aria-label="Required course credit" max="100" value={data.summary.completion_percent} />
+      </section>
+      <section className="recommendations">
+        <h2>Ready to consider next</h2>
+        {data.recommendations.length ? (
+          <ul className="recommendation-chips">
+            {data.recommendations.map(id => {
+              const course = data.courses.find(c => c.course.id === id)?.course
+              return (
+                <li key={id}>
+                  <a href={`#course-${id}`}>
+                    <strong>{id}</strong>
+                    <span>{course?.title ?? ''}</span>
+                  </a>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="empty">No eligible courses to recommend yet.</p>
+        )}
+      </section>
+      {!data.courses.length && <p className="empty">No catalog courses loaded.</p>}
+      <div className="semester-list">{terms.map(term => <section className="semester" key={term}><h2>Semester {term}</h2><div>{data.courses.filter(c => c.term_order === term).map(c => <article className="roadmap-course" id={`course-${c.course.id}`} key={c.course.id}>
+        <div className="section-heading"><h3>{c.course.id}</h3><span className="status">{c.student_status.replaceAll('_', ' ')}{c.grade ? ` · ${c.grade}` : ''}</span></div><p>{c.course.title}</p><p className="help">{c.is_required ? 'Required' : 'Optional'} · {c.course.units_min ?? 'Unknown'} units</p><EligibilityDetails value={c.eligibility} />
+      </article>)}</div></section>)}</div>
+    </>}
+  </section>
 }
